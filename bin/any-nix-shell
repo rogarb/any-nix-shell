@@ -1,5 +1,37 @@
 #!/bin/sh
 
+function init_xonsh () {
+                output+=$(cat <<EOF
+# If you see this output, you probably forgot to 'execx' it:
+# execx(\$(any-nix-shell $@))
+
+# Overwrite the nix-shell command
+aliases["nix-shell"] = "@(\$(which .any-nix-shell-wrapper)) xonsh @(\$args)"
+
+# Overwrite the nix command
+def __nix(args):
+    if args and args[0] == "run":
+        @(\$(which .any-nix-wrapper)) xonsh @(args)
+    else:
+        @(\$(which -s nix)) @(args)
+aliases["nix"] = __nix
+EOF
+                )
+    for arg in "$@"; do
+        case "$arg" in
+            --info-right)
+                output+=$(cat <<EOF
+
+
+# Print additional information inside a nix-shell environment
+\$RIGHT_PROMPT = lambda: \$(@(\$(which nix-shell-info)))
+EOF
+                );;
+            *) error;;
+        esac
+    done
+}
+
 function init_fish () {
                 output+=$(cat <<EOF
 # If you see this output, you probably forgot to pipe it into 'source':
@@ -12,9 +44,8 @@ end
 
 # Overwrite the nix command
 function nix
-    if test \$argv[1] = shell
-        set argv[1] fish
-        $(which .any-nix-wrapper) \$argv
+    if test \$argv[1] = run
+        $(which .any-nix-wrapper) fish \$argv
     else
         command nix \$argv
     end
@@ -51,8 +82,7 @@ function nix-shell () {
 
 # Overwrite the nix command
 function nix () {
-    if [[ \$1 == shell ]]; then
-        shift
+    if [[ "\$1" == "run" ]]; then
         $(which .any-nix-wrapper) zsh "\$@"
     else
         command nix "\$@"
@@ -69,7 +99,7 @@ EOF
 # Print additional information inside a nix-shell environment
 precmd () {
     with_codes=\$($(which nix-shell-info))
-    without_codes=\$(printf "\$with_codes" | sed -r "s/\\\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g")
+    without_codes=\$(printf "\$with_codes" | $(which sed) -r "s/\\\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g")
     RPROMPT=%\${#without_codes}{\$with_codes%}
 }
 
@@ -95,7 +125,7 @@ EOF
 
 function error () {
     echo "echo ERROR: wrong usage"
-    echo "bash -c \"\$(exit 1)\""
+    echo "$(which bash) -c \"exit 2\""
     exit 1
 }
 
@@ -104,6 +134,7 @@ function error () {
 output=
 
 case "$1" in
+    xonsh) init_xonsh "${@:2}";;
     fish) init_fish "${@:2}";;
     zsh) init_zsh "${@:2}";;
     *) error;;
